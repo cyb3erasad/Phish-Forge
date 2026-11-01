@@ -1,0 +1,16 @@
+# =====================================================================
+# Phish Forge - Python Requirements
+# =====================================================================
+# Note: This project uses NO external Python libraries. 
+# It relies entirely on the Python 3 Standard Library (sys, email, re).
+# Therefore, there are no 'pip' packages to install here.
+
+# However, this tool requires specific SYSTEM-level binaries to function.
+# Please install them using your OS package manager (e.g., apt on Kali/Debian).
+# See the README.md for full installation instructions.
+
+# Required System Dependencies:
+#   python3    (For MIME parsing and URL extraction)
+#   jq         (For parsing VirusTotal JSON responses)
+#   curl       (For querying the VirusTotal API)
+#   ripmime    (For extracting attachments from .eml files)
