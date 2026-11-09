@@ -23,7 +23,7 @@ by **Asad (Cyb3r Asad)** — CS Student · Aspiring SOC Analyst · Blue Team
 
 <br>
 
-![Phish Forge terminal output](docs/screenshot.png)
+![Phish Forge terminal output](docs/screenshot.PNG)
 
 </div>
 
