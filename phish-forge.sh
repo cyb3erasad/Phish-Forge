@@ -2,7 +2,7 @@
 # ============================================================
 # Phish Forge - Phishing .eml Triage Analyzer
 # Author: [Cyb3r Asad]
-# Version: 1.4 (Solid Block Logo)
+# Version: 1.5 (Added NRD Detection)
 # ============================================================
 
 set -euo pipefail
@@ -29,12 +29,18 @@ EOF
     echo -e "${NC}"
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}   Phishing .eml Triage Analyzer${NC}"
-    echo -e "${CYAN}   Version 1.4 | Author: [Cyb3r Asad]${NC}"
+    echo -e "${CYAN}   Version 1.5 | Author: [Cyb3r Asad]${NC}"
     echo -e "${CYAN}======================================================${NC}\n"
 }
 
 show_help() {
     echo -e "Usage: $0 -f <file.eml> [-o <output_dir>]"
+    echo ""
+    echo "Options:"
+    echo "  -f    Path to the .eml file to analyze (Required)"
+    echo "  -o    Output directory for the report (Default: ./reports)"
+    echo "  -h    Show this help menu"
+    echo ""
     exit 1
 }
 
@@ -138,7 +144,8 @@ for part in msg.walk():
 for u in sorted(urls): print(u)
 PY
   sort -u "$OUT_DIR/urls/raw.txt" > "$OUT_DIR/urls/unique.txt"
-  awk -F/ '{print $3}' "$OUT_DIR/urls/unique.txt" | grep -v '^$' | sort -u > "$OUT_DIR/urls/domains.txt" || true
+  # Extract domains, remove ports if present, filter empty lines
+  awk -F/ '{print $3}' "$OUT_DIR/urls/unique.txt" | sed 's/:.*//' | grep -v '^$' | sort -u > "$OUT_DIR/urls/domains.txt" || true
   
   local n=$(wc -l < "$OUT_DIR/urls/unique.txt" | tr -d ' ')
   log "\n${CYAN}URLs Found:${NC} $n"
@@ -159,6 +166,47 @@ extract_attachments() {
   fi
 }
 
+check_domain_age() {
+  log "\n${CYAN}[*] Checking Domain Age (NRD Heuristic):${NC}"
+  local dom reg_date age_days resp
+
+  while IFS= read -r dom; do
+    [[ -z "$dom" ]] && continue
+    
+    # 1. Check if WhoisFreaks API key is set (Thanks to the LinkedIn tip!)
+    if [[ -n "${WHOISFREAKS_API_KEY:-}" ]]; then
+      resp=$(curl -s --max-time 10 "https://api.whoisfreaks.com/v1.0/whois?apiKey=${WHOISFREAKS_API_KEY}&whois=live&domainName=${dom}" 2>/dev/null || true)
+      reg_date=$(jq -r '.create_date // empty' <<<"$resp" 2>/dev/null || true)
+    else
+      # 2. Fallback to FREE RDAP.org (No API key required)
+      resp=$(curl -s --max-time 10 "https://rdap.org/domain/${dom}" 2>/dev/null || true)
+      reg_date=$(jq -r '.events[] | select(.eventAction=="registration") | .eventDate' <<<"$resp" 2>/dev/null || true)
+    fi
+
+    # If we couldn't find the date, skip
+    if [[ -z "$reg_date" || "$reg_date" == "null" ]]; then
+      log "  ${YELLOW}[?] $dom -> Could not determine age${NC}"
+      continue
+    fi
+
+    # 3. Calculate age in days
+    local reg_epoch=$(date -d "$reg_date" +%s 2>/dev/null || echo 0)
+    local now_epoch=$(date +%s)
+    
+    if [[ "$reg_epoch" -ne 0 ]]; then
+        age_days=$(( (now_epoch - reg_epoch) / 86400 ))
+        
+        # 4. Score the result
+        if [[ "$age_days" -lt 30 ]]; then
+            log "  ${RED}[!] $dom -> Registered $age_days days ago (NRD - HIGH RISK)${NC}"
+            finding "Newly Registered Domain (NRD): $dom ($age_days days old)" 4
+        else
+            log "  ${GREEN}[+] $dom -> Registered $age_days days ago${NC}"
+        fi
+    fi
+  done < "$OUT_DIR/urls/domains.txt"
+}
+
 enrich_vt() {
   if [[ -z "${VT_API_KEY:-}" ]]; then return; fi
   
@@ -174,7 +222,7 @@ enrich_vt() {
     else
         log "  ${GREEN}[+] $dom -> Clean${NC}"
     fi
-    sleep 15
+    sleep 15 # Free tier rate limit
   done < "$OUT_DIR/urls/domains.txt"
 }
 
@@ -203,6 +251,7 @@ extract_headers
 check_mismatch
 check_auth
 extract_urls
+check_domain_age
 extract_attachments
 enrich_vt
 verdict
